@@ -1,0 +1,24 @@
+# Datos (se descargan de Kaggle, no se versionan)
+data/*
+!data/.gitkeep
+*.csv
+*.zip
+*.parquet
+
+# SQL renderizado con TU bucket
+sql_rendered/
+
+# Credenciales: NUNCA al repo
+.env
+.aws/
+*.pem
+*.key
+credentials*
+**/aws_credentials*
+
+# Python / editor
+__pycache__/
+.venv/
+.ipynb_checkpoints/
+.vscode/
+.DS_Store
