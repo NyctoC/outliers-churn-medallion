@@ -37,6 +37,7 @@ outliers-churn-medallion/
 ├── README.md
 ├── docs/
 │   ├── 01_aws_setup_paso_a_paso.md       # guía de la consola de AWS desde cero
+│   ├── 02_conexion_aws.md                # conectarse desde Python con el usuario compartido
 │   ├── reglas_de_calidad.md              # catálogo de reglas (generado) para justificar con hallazgos
 │   └── comparacion_bronce_plata_oro.md   # plantilla de bytes escaneados y tiempos
 ├── sql/
@@ -49,8 +50,18 @@ outliers-churn-medallion/
 │   └── 99_reset/        # borra plata/oro para repetir
 ├── tools/
 │   ├── generate_sql.py  # genera bronce/hallazgos/plata/checks desde UNA especificación
-│   └── render_sql.py    # pone tu bucket en los .sql -> sql_rendered/ (ignorado por git)
-└── data/                # aquí van los CSV localmente (ignorados por git)
+│   ├── render_sql.py    # pone tu bucket en los .sql -> sql_rendered/ (ignorado por git)
+│   └── verificar_conexion.py  # comprueba .env, credenciales y Athena
+├── .env.example         # plantilla de la conexión a AWS: cópiala como .env (ignorado por git)
+├── notebooks/
+│   └── 01_eda_calidad.ipynb   # EDA y 6 dimensiones de calidad (02_modelado y 03_xai: modelado)
+├── src/churn/           # código compartido por notebooks y API
+│   ├── data.py          # Athena -> caché parquet, tipos y partición train/test compartida
+│   ├── eda.py           # funciones del análisis exploratorio y de calidad
+│   └── features.py      # diccionario por grupo + pipeline de limpieza (reglas deterministas)
+├── reports/figures/     # figuras exportadas para el documento y la presentación
+├── requirements.txt
+└── data/                # CSV y cachés parquet locales (ignorados por git)
 ```
 
 ## Cómo replicarlo
@@ -100,8 +111,9 @@ sirve mal para BI. Por eso hay:
 - `orders_monthly_category`: agregado de negocio (mes × categoría) para el tablero y para la comparación de capas.
 - `churn_by_dimension`: tasa de churn y CLV por segmento (vista "monitoreo del churn").
 
-**6. Fuga de información.** `churn_risk_score` y `customer_segment` ("At Risk") pasan a oro, pero **no deben usarse
-como predictoras** hasta auditarlas. `first_name`, `country` (constantes) y `last_name` (código único) se omiten en oro.
+**6. Fuga de información.** `churn_risk_score` y `customer_segment` pasan a oro, pero **no deben usarse como
+predictoras** (auditoría en la sección 5.3 de `notebooks/01_eda_calidad.ipynb`). `first_name`, `country` (constantes) y
+`last_name` (código único) se omiten en oro.
 
 **7. Fecha de corte.** Las reglas de fechas usan `DATE '2026-07-31'` (publicación de la v2 del dataset). Se cambia en
 `tools/generate_sql.py` (`CUT`).
@@ -123,14 +135,30 @@ como predictoras** hasta auditarlas. `first_name`, `country` (constantes) y `las
 ~266 MB de datos: Athena (≈ 5 USD/TB escaneado) y S3 cuestan centavos. Aun así configura un *budget* (ver guía) y
 limpia al terminar.
 
-## Siguiente paso: EDA
+## EDA y calidad de datos
 
-Lee oro desde Python (las credenciales viven en `aws configure` o variables de entorno, **nunca en el repo**):
+1. Sigue **`docs/02_conexion_aws.md`**: instala las dependencias, copia `.env.example` como `.env`, pon las llaves
+   y ejecuta `python tools/verificar_conexion.py`. Las credenciales viven en `.env`, **nunca en el repo**.
+2. Abre `notebooks/01_eda_calidad.ipynb`. La primera ejecución lee oro y plata desde Athena y los guarda en
+   `data/*.parquet`; las siguientes usan esa caché.
+
+El notebook mide la calidad sobre todos los datos (sin relacionar las variables con `churn`), fija la partición train/test
+(`data/particion.parquet`) y hace el análisis exploratorio **solo sobre train**. Las decisiones quedan en
+`docs/eda_decisiones.md` y las reglas de limpieza en `src/churn/features.py`. El modelado parte de lo mismo:
 
 ```python
-import awswrangler as wr   # pip install awswrangler
-df = wr.athena.read_sql_query("SELECT * FROM customer_360", database="churn_gold")
+from churn import data, features   # con src/ en sys.path
+c360 = data.normalizar_tipos(data.cargar_customer_360(), features.COLUMNAS_FECHA)
+limpio = features.crear_pipeline_limpieza().fit_transform(c360)
+limpio = limpio.merge(data.cargar_particion(limpio), on=features.LLAVE)   # la misma partición del EDA
+train = limpio[limpio["conjunto"] == "train"].drop(columns="conjunto")
+test = limpio[limpio["conjunto"] == "test"].drop(columns="conjunto")      # se evalúa una sola vez, al final
+
+variables_principal = features.VARIABLES_ESCENARIO_PRINCIPAL
+variables_comparacion = features.variables_escenario_comparacion(train)
 ```
+
+Las variables y los criterios para el modelado están en la sección 7 del notebook.
 
 ## Referencias
 
