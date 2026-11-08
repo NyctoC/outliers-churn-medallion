@@ -18,6 +18,8 @@ truststore.inject_into_ssl()
 
 RAIZ = Path(__file__).resolve().parents[2]
 DIR_DATOS = RAIZ / "data"
+DIR_MODELADO = DIR_DATOS / "modelado"
+PREFIJO_MODELADO = "modelado"
 
 load_dotenv(RAIZ / ".env")
 
@@ -107,6 +109,45 @@ def cargar_particion(df, objetivo="churn", llave="customer_id"):
     DIR_DATOS.mkdir(exist_ok=True)
     particion.to_parquet(ruta, index=False)
     return particion
+
+
+def descargar_modelado(refrescar=False):
+    """Descarga de S3 a `data/modelado` los resultados con los que se decidió el modelo y el modelo final.
+
+    Los archivos que ya existen no se tocan, salvo que `refrescar` sea True.
+    Devuelve cuántos archivos se descargaron y cuántos ya existían.
+    """
+    s3, bucket = _sesion().client("s3"), _bucket()
+    descargados = existentes = 0
+    for pagina in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=f"{PREFIJO_MODELADO}/"):
+        for objeto in pagina.get("Contents", []):
+            if objeto["Key"].endswith("/"):
+                continue
+            ruta = DIR_MODELADO / objeto["Key"].removeprefix(f"{PREFIJO_MODELADO}/")
+            if ruta.exists() and not refrescar:
+                existentes += 1
+                continue
+            ruta.parent.mkdir(parents=True, exist_ok=True)
+            s3.download_file(bucket, objeto["Key"], str(ruta))
+            descargados += 1
+    return descargados, existentes
+
+
+def subir_modelado():
+    """Sube a S3 todo `data/modelado`, incluido el modelo final, reemplazando lo que haya. Devuelve cuántos archivos subió."""
+    s3, bucket = _sesion().client("s3"), _bucket()
+    archivos = [ruta for ruta in DIR_MODELADO.rglob("*") if ruta.is_file()]
+    for ruta in archivos:
+        s3.upload_file(str(ruta), bucket, f"{PREFIJO_MODELADO}/{ruta.relative_to(DIR_MODELADO).as_posix()}")
+    return len(archivos)
+
+
+def _bucket():
+    """Bucket del proyecto, tomado de ATHENA_S3_OUTPUT (s3://bucket/carpeta/) para no escribirlo en el repo."""
+    salida = os.environ.get("ATHENA_S3_OUTPUT", "")
+    if not salida.startswith("s3://"):
+        raise ValueError("Falta ATHENA_S3_OUTPUT en .env, con la forma s3://bucket/carpeta/")
+    return salida.removeprefix("s3://").split("/")[0]
 
 
 def _sesion():

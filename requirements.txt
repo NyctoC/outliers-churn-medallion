@@ -9,3 +9,12 @@ scipy==1.17.1
 scikit-learn==1.9.1
 matplotlib==3.11.2
 jupyter==1.1.1
+# Modelado (02_modelado.ipynb)
+xgboost==3.4.1
+interpret-core==0.7.8
+optuna==5.0.0
+imbalanced-learn==0.14.2
+# Explicabilidad (03_xai.ipynb)
+shap==0.52.0
+lime==0.2.0.1
+dice-ml==0.12
