@@ -1,0 +1,58 @@
+{
+  "desempeno_test": {
+    "roc_auc": 0.7810836772242771,
+    "pr_auc": 0.5963344019512526
+  },
+  "importancia": {
+    "summary_total_orders": 0.6006,
+    "total_returns": 0.5995,
+    "summary_total_orders & total_returns": 0.3831,
+    "total_spent": 0.2964,
+    "average_order_value": 0.1792
+  },
+  "variable_con_senal": "summary_total_orders",
+  "experimento_descartadas": {
+    "4 variables finales": {
+      "ROC-AUC": 0.77882,
+      "PR-AUC": 0.59512
+    },
+    "+ last_purchase_days": {
+      "ROC-AUC": 0.98716,
+      "PR-AUC": 0.94238,
+      "% de la importancia de lo agregado": 35.7189
+    },
+    "+ return_rate": {
+      "ROC-AUC": 0.7789,
+      "PR-AUC": 0.59708,
+      "% de la importancia de lo agregado": 54.13695
+    },
+    "+ purchase_frequency": {
+      "ROC-AUC": 0.80944,
+      "PR-AUC": 0.61078,
+      "% de la importancia de lo agregado": 38.8898
+    },
+    "+ las 3 descartadas": {
+      "ROC-AUC": 0.99999,
+      "PR-AUC": 0.99995,
+      "% de la importancia de lo agregado": 99.22814
+    }
+  },
+  "experimento_variable_con_senal": {
+    "4 variables finales": {
+      "ROC-AUC": 0.77882,
+      "PR-AUC": 0.59512
+    },
+    "EBM editado (sin términos de summary_total_orders)": {
+      "ROC-AUC": 0.71596,
+      "PR-AUC": 0.45887
+    },
+    "reentrenado sin summary_total_orders": {
+      "ROC-AUC": 0.77595,
+      "PR-AUC": 0.5882
+    },
+    "reentrenado sin summary_total_orders ni total_spent": {
+      "ROC-AUC": 0.58659,
+      "PR-AUC": 0.25102
+    }
+  }
+}
