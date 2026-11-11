@@ -4,7 +4,8 @@ Arquitectura **Medallion (bronce → plata → oro)** sobre **AWS S3 + Athena + 
 *Customer Churn Prediction Dataset V2 (500K)* de Kaggle. Proyecto Integrador 1 · Maestría en Ciencia de Datos y
 Analítica · Universidad EAFIT · equipo **The Outliers**.
 
-Esta base deja los datos limpios, auditados y consolidados para el **EDA** y el modelado de churn.
+Esta base deja los datos limpios, auditados y consolidados para el **EDA** y el modelado de churn. Sobre ella están
+el EDA, el **modelo de churn** (un EBM) y su **explicabilidad**.
 También cubre la **Parte A** del Trabajo 1 (capas Medallion) del curso *Almacenamiento y Procesamiento de Grandes Datos*.
 
 > Datos sintéticos (licencia Apache 2.0). Autor: Kuldeep Jangra. Los CSV **no** se versionan en este repo.
@@ -18,10 +19,13 @@ flowchart LR
       B[(bronze/<br/>CSV crudos)]
       S[(silver/<br/>Iceberg válidas + rechazadas)]
       G[(gold/<br/>Iceberg para EDA/BI)]
+      M[(modelado/<br/>resultados y modelo final)]
     end
     B -->|"Athena: tipado + reglas de calidad"| S
     S -->|"Athena: joins + agregaciones"| G
     G --> E[EDA / modelo / tablero]
+    E -->|"subir_modelado()"| M
+    M -->|"cargar_modelo_final()"| A[API / tablero]
 ```
 
 | Capa | Qué contiene | Formato | Base en Athena |
@@ -39,7 +43,9 @@ outliers-churn-medallion/
 │   ├── 01_aws_setup_paso_a_paso.md       # guía de la consola de AWS desde cero
 │   ├── 02_conexion_aws.md                # conectarse desde Python con el usuario compartido
 │   ├── reglas_de_calidad.md              # catálogo de reglas (generado) para justificar con hallazgos
-│   └── comparacion_bronce_plata_oro.md   # plantilla de bytes escaneados y tiempos
+│   ├── comparacion_bronce_plata_oro.md   # plantilla de bytes escaneados y tiempos
+│   ├── eda_decisiones.md                 # bitácora de decisiones del EDA, con su evidencia
+│   └── modelado_decisiones.md            # bitácora de decisiones del modelado y la explicabilidad
 ├── sql/
 │   ├── 00_setup/        # crea las 3 bases de datos
 │   ├── 01_bronze/       # tablas externas + verificación de conteos
@@ -54,14 +60,19 @@ outliers-churn-medallion/
 │   └── verificar_conexion.py  # comprueba .env, credenciales y Athena
 ├── .env.example         # plantilla de la conexión a AWS: cópiala como .env (ignorado por git)
 ├── notebooks/
-│   └── 01_eda_calidad.ipynb   # EDA y 6 dimensiones de calidad (02_modelado y 03_xai: modelado)
+│   ├── 01_eda_calidad.ipynb   # EDA y 6 dimensiones de calidad
+│   ├── 02_modelado.ipynb      # validación, desbalance, fuga, selección y evaluación del modelo
+│   └── 03_xai.ipynb           # explicaciones globales, individuales, contrafactuales y detective de sesgos
 ├── src/churn/           # código compartido por notebooks y API
-│   ├── data.py          # Athena -> caché parquet, tipos y partición train/test compartida
+│   ├── data.py          # Athena -> caché parquet, tipos, partición train/test y resultados del modelado en S3
 │   ├── eda.py           # funciones del análisis exploratorio y de calidad
-│   └── features.py      # diccionario por grupo + pipeline de limpieza (reglas deterministas)
-├── reports/figures/     # figuras exportadas para el documento y la presentación
+│   ├── features.py      # diccionario por grupo, pipeline de limpieza y variables de cada escenario y del modelo
+│   └── modelos.py       # modelo final: carga desde S3, predicción, priorización, explicaciones y contrafactuales
+├── reports/
+│   ├── figures/         # figuras del EDA, del modelado (modelado_*) y de la explicabilidad (xai_*)
+│   └── resumen_xai.json # cifras clave de 03_xai.ipynb
 ├── requirements.txt
-└── data/                # CSV y cachés parquet locales (ignorados por git)
+└── data/                # CSV, cachés parquet y data/modelado/ (ignorados por git)
 ```
 
 ## Cómo replicarlo
@@ -160,6 +171,47 @@ variables_comparacion = features.variables_escenario_comparacion(train)
 ```
 
 Las variables y los criterios para el modelado están en la sección 7 del notebook.
+
+## Modelado y explicabilidad
+
+1. Con la conexión configurada, abre `notebooks/02_modelado.ipynb`. Al inicio descarga del bucket
+   (`s3://<bucket>/modelado/`) los resultados de los experimentos, las búsquedas de Optuna, las predicciones y el
+   modelo final. Las celdas que tardan leen esos archivos en lugar de recalcularlos, así se obtienen las mismas
+   cifras con las que se decidió.
+2. Después abre `notebooks/03_xai.ipynb`, que explica el modelo final.
+
+Las decisiones con su evidencia están en `docs/modelado_decisiones.md`. Las que cambiaron decisiones del EDA están
+además en `docs/eda_decisiones.md` (decisiones 38 a 43).
+
+**Resultado**
+
+| | |
+|---|---|
+| Modelo final | EBM (*Explainable Boosting Machine*), elegido por interpretabilidad en un empate con XGBoost y random forest |
+| Variables | `summary_total_orders`, `total_spent`, `average_order_value` y `total_returns` (`features.VARIABLES_MODELO_FINAL`) |
+| Retiradas por fuga | `last_purchase_days`, `return_rate` y `purchase_frequency`: con ellas el ROC-AUC llega a 1, porque la etiqueta parece construida a partir de ellas |
+| Desempeño en `test` | ROC-AUC de 0,781 y PR-AUC de 0,596, frente a 0,500 y 0,207 del azar |
+| Uso | Contactar al 10 % de los clientes de mayor riesgo captura el 35,0 % del churn (lift de 3,50) |
+| Lo que más pesa | Pedidos y devoluciones: más pedidos y más gasto bajan el riesgo, más devoluciones lo suben |
+| Escenario de comparación | Las 51 variables de fuera de `customer_summary` no superan el azar (ROC-AUC de 0,499) |
+
+**Uso del modelo** (para la API y el tablero)
+
+```python
+from churn import modelos   # con src/ en sys.path
+
+modelo, configuracion = modelos.cargar_modelo_final()   # descarga de S3 si no está en local
+clientes = modelos.cargar_clientes()                    # customer_360 con Athena + pipeline de limpieza
+predicciones = modelos.priorizar(modelos.predecir(modelo, clientes))   # de mayor a menor riesgo
+tabla = modelos.explicar_clientes(modelo, clientes)     # motivo principal y campaña sugerida por cliente
+detalle = modelos.explicar_cliente(modelo, clientes.iloc[[0]])     # por qué quedó clasificado así
+cambios = modelos.contrafactuales(modelo, clientes.iloc[[0]])      # qué lo dejaría bajo el umbral de 0,5
+```
+
+**Limitaciones.** Los datos son sintéticos y la etiqueta parece construida con las 3 variables retiradas. Sin el
+código del generador no queda demostrado, y parte de esa señal puede seguir en las 4 variables del modelo. Las
+explicaciones describen cómo decide el modelo, no por qué abandonan los clientes. El detalle está en la sección
+"Limitaciones" de `docs/modelado_decisiones.md`.
 
 ## Referencias
 
