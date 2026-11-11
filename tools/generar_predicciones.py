@@ -65,9 +65,9 @@ def verificar(tabla):
 def escribir_oro(tabla):
     """Sube la tabla a S3 en un único Parquet y crea la tabla externa en Athena.
 
-    Se evita wr.athena.to_iceberg porque entra en conflicto con truststore (RecursionError al crear el
-    cliente SSL). En cambio se usa el cliente S3 de boto3 (igual que descargar_modelado) y Athena para el DDL
-    (igual que leer_athena), que sí conviven con truststore.
+    Se usa Parquet externo y no wr.athena.to_iceberg: la tabla se reescribe completa en cada corrida, así que
+    Iceberg no aporta ventajas. Ojo: awswrangler debe importarse DESPUÉS de churn.data (que activa truststore);
+    en el otro orden, crear un cliente de AWS da RecursionError. Por eso ejecutar_athena lo importa dentro.
     """
     bucket = data._bucket()
     prefijo = f"gold/{TABLA}"

@@ -102,10 +102,14 @@ SELECT count(*), count(DISTINCT customer_id), sum(churn_predicho) FROM churn_gol
 - 2.210 clientes no tienen `motivo_principal` (ningún término les suma riesgo) y 57.670 no tienen
   `campana_sugerida`: además de esos 2.210, los 55.460 cuyo motivo es `average_order_value`, que no tiene campaña
   propia (decisión 24).
-- **Formato:** es una tabla externa sobre Parquet, no Iceberg como el resto de oro. `wr.athena.to_iceberg` falló en
-  nuestras pruebas con `RecursionError` al crear el cliente de Athena, con `truststore` activo (lo activa
-  `src/churn/data.py`). La escritura con el cliente S3 de boto3 y el `CREATE EXTERNAL TABLE` en Athena sí funciona.
-  Para una tabla que se reescribe completa en cada corrida, Iceberg no aporta ventajas.
+- **Formato:** es una tabla externa sobre Parquet, no Iceberg como el resto de oro. La primera versión del script usaba
+  `wr.athena.to_iceberg` y falló con `RecursionError`. La causa es el **orden de los `import`**: `src/churn/data.py`
+  activa `truststore` al importarse, y si `awswrangler` se importa antes que `churn.data`, crear un cliente de AWS
+  entra en un bucle (comprobado con `wr.athena.get_work_group`: falla con `awswrangler` primero y funciona con
+  `churn.data` primero). Por eso `leer_athena` no tiene el problema: importa `awswrangler` dentro de la función.
+  No se probó escribir Iceberg con el orden corregido. Se dejó Parquet externo porque la tabla se reescribe completa en
+  cada corrida y Iceberg no aporta ventajas aquí. Quien escriba otra tabla con `awswrangler` debe importar `churn.data`
+  primero.
 
 ## 4. API
 
