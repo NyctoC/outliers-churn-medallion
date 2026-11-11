@@ -233,7 +233,7 @@ uvicorn api.app:app --reload           # API en http://127.0.0.1:8000/docs
 |---|---|
 | Tabla | `churn_gold.churn_predicciones`: probabilidad, `churn_predicho`, prioridad, motivo, campaña y contribuciones de los 500.000 clientes. Verificada: 43.375 marcados como churn y ROC-AUC de 0,7811 en `test` |
 | Endpoints | `GET /salud`, `GET /modelo`, `POST /predecir`, `POST /explicar`, `POST /contrafactuales`, `GET /clientes/{customer_id}` |
-| Despliegue | Docker en EC2 con un rol IAM de solo lectura sobre el modelo (sección 5 de la guía) |
+| Despliegue | Docker en EC2 (`t3.small`) con un rol IAM de solo lectura sobre el modelo. Probado desde fuera de AWS: mismas probabilidades que el modelo local (sección 6 de la guía) |
 
 ## Referencias
 

@@ -7,10 +7,10 @@ Ambas usan las funciones de `src/churn/modelos.py`, así que dan los mismos resu
 
 | Pieza | Archivo | Estado |
 |---|---|---|
-| API (FastAPI) | `api/app.py` | Probada en local (sección 6) |
-| Imagen Docker | `api/Dockerfile`, `api/requirements.txt`, `.dockerignore`, `tools/empaquetar_api.py` | Escrita, falta construirla en EC2 |
+| API (FastAPI) | `api/app.py` | Probada en local y en EC2 (sección 6) |
+| Imagen Docker | `api/Dockerfile`, `api/requirements.txt`, `.dockerignore`, `tools/empaquetar_api.py` | Construida y ejecutándose en EC2 |
 | Tabla de predicciones | `tools/generar_predicciones.py` → `churn_gold.churn_predicciones` | Creada y verificada en Athena |
-| Despliegue en EC2 | Sección 5 | Pendiente |
+| Despliegue en EC2 | Sección 5 | Desplegado y probado desde fuera de AWS el 11 nov 2026 |
 
 ## 1. Arquitectura
 
@@ -161,7 +161,10 @@ existe `data/churn_predicciones.parquet` (lo deja `generar_predicciones.py`), ta
 
 Los `NaN` de `contrafactuales` (por ejemplo, cuando una variable no logra bajar del umbral) se devuelven como `null`.
 
-## 5. Despliegue en EC2 (pendiente de ejecutar)
+## 5. Despliegue en EC2
+
+Ejecutado el 11 nov 2026: instancia `outliers-churn-api` (`t3.small`, Amazon Linux 2023, `us-east-1`), Docker 25 y
+contenedor `churn-api` con `--restart unless-stopped`.
 
 La imagen copia `src/churn/` y `api/`, pero no el modelo ni credenciales: el modelo y la copia de la tabla se montan al
 ejecutar, y la instancia los lee de S3 con un rol IAM. `.dockerignore` deja fuera `.env`, `data/` y los notebooks.
@@ -187,6 +190,12 @@ ejecutar, y la instancia los lee de S3 con un rol IAM. `.dockerignore` deja fuer
 
 2. **Instancia.** Amazon Linux 2023, `t3.small`, sin key pair (conexión por EC2 Instance Connect), IP pública,
    16 GB gp3, perfil `outliers-ec2-api`. Security group: SSH (22) para Instance Connect y TCP 8000 desde *My IP*.
+
+   **Ojo con *My IP*:** al crear la instancia, la consola puede tomar tu dirección IPv6, y el navegador suele entrar
+   por IPv4. En ese caso la API no responde (`ERR_CONNECTION_TIMED_OUT`) y AWS no deja cambiar la regla de IPv6 a
+   IPv4 ("No puede especificar un CIDR IPv4 para una regla de CIDR IPv6 existente"). Solución: elimina la regla del
+   puerto 8000 y créala de nuevo con *My IP*, que debe mostrar una dirección `x.x.x.x/32`. Repite esto si cambias de
+   red. La URL lleva el puerto: `http://<ip-publica>:8000/docs`.
 
 3. **Instalación** (en la terminal de Instance Connect):
 
@@ -215,7 +224,27 @@ ejecutar, y la instancia los lee de S3 con un rol IAM. `.dockerignore` deja fuer
 5. **Costo.** `t3.small` cuesta cerca de 0,02 USD por hora más la IP pública. Detén la instancia cuando no se use;
    al encenderla cambia la IP y el contenedor arranca solo. Al terminar el proyecto, termínala y borra el rol.
 
-## 6. Pruebas realizadas (11 nov 2026, en local)
+## 6. Pruebas realizadas (11 nov 2026)
+
+### En EC2, desde fuera de AWS
+
+Peticiones HTTP a la API desplegada desde un computador externo, comparando cada respuesta con el modelo cargado en
+local y con la tabla de oro. Pasaron 11 de 11:
+
+| Prueba | Referencia | Resultado |
+|---|---|---|
+| `/salud` y `/modelo` | — | 200, EBM y versiones del entrenamiento; unos 200 ms |
+| `/predecir` con 200 clientes reales al azar | `modelos.predecir` en local | Diferencia máxima de 0; 387 ms el lote completo |
+| `/explicar` del cliente de mayor riesgo | `modelos.explicar_cliente` en local | Misma probabilidad y mismo motivo |
+| `/contrafactuales` del mismo cliente | `modelos.contrafactuales` en local | Misma meta (de 8 a 21 pedidos deja la probabilidad en 0,474) |
+| `/clientes/{id}` de un cliente real | `churn_predicciones` | Misma probabilidad y prioridad |
+| Cliente inexistente, devoluciones > pedidos, texto en vez de número, valor fuera de rango | — | 404, 422, 422 y advertencia |
+| `/docs` | — | Swagger carga |
+
+Dentro de la instancia, `docker ps` muestra el contenedor `Up` en `0.0.0.0:8000`, los logs terminan en
+`Application startup complete` y `/salud` devuelve `"busqueda_por_customer_id": true`.
+
+### En local
 
 Con el cliente de pruebas de FastAPI y el modelo descargado de S3, 25 de 25 chequeos pasaron:
 
@@ -229,7 +258,7 @@ Con el cliente de pruebas de FastAPI y el modelo descargado de S3, 25 de 25 cheq
 También se comprobó que la API arranca y responde en un entorno limpio con **solo** `api/requirements.txt` (lo mismo
 que tendrá la imagen), sin `awswrangler`, `matplotlib` ni `xgboost`.
 
-No se ha probado: la construcción de la imagen Docker (no hay Docker en el equipo local) ni el despliegue en EC2.
+No se ha probado: carga concurrente (muchas peticiones a la vez) ni seguridad, porque la API no tiene autenticación.
 
 ## 7. Qué decir y qué no
 
