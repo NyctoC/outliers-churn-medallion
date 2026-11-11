@@ -45,7 +45,8 @@ outliers-churn-medallion/
 │   ├── reglas_de_calidad.md              # catálogo de reglas (generado) para justificar con hallazgos
 │   ├── comparacion_bronce_plata_oro.md   # plantilla de bytes escaneados y tiempos
 │   ├── eda_decisiones.md                 # bitácora de decisiones del EDA, con su evidencia
-│   └── modelado_decisiones.md            # bitácora de decisiones del modelado y la explicabilidad
+│   ├── modelado_decisiones.md            # bitácora de decisiones del modelado y la explicabilidad
+│   └── 03_api_despliegue.md              # API, tabla churn_predicciones y despliegue en EC2
 ├── sql/
 │   ├── 00_setup/        # crea las 3 bases de datos
 │   ├── 01_bronze/       # tablas externas + verificación de conteos
@@ -57,7 +58,12 @@ outliers-churn-medallion/
 ├── tools/
 │   ├── generate_sql.py  # genera bronce/hallazgos/plata/checks desde UNA especificación
 │   ├── render_sql.py    # pone tu bucket en los .sql -> sql_rendered/ (ignorado por git)
-│   └── verificar_conexion.py  # comprueba .env, credenciales y Athena
+│   ├── verificar_conexion.py  # comprueba .env, credenciales y Athena
+│   └── generar_predicciones.py  # crea churn_gold.churn_predicciones (una fila por cliente) para el tablero
+├── api/
+│   ├── app.py           # API REST (FastAPI) sobre src/churn/modelos.py
+│   ├── requirements.txt # dependencias de la API con las versiones del modelo
+│   └── Dockerfile       # imagen de la API; el modelo se monta al ejecutar
 ├── .env.example         # plantilla de la conexión a AWS: cópiala como .env (ignorado por git)
 ├── notebooks/
 │   ├── 01_eda_calidad.ipynb   # EDA y 6 dimensiones de calidad
@@ -212,6 +218,22 @@ cambios = modelos.contrafactuales(modelo, clientes.iloc[[0]])      # qué lo dej
 código del generador no queda demostrado, y parte de esa señal puede seguir en las 4 variables del modelo. Las
 explicaciones describen cómo decide el modelo, no por qué abandonan los clientes. El detalle está en la sección
 "Limitaciones" de `docs/modelado_decisiones.md`.
+
+## API y tabla de predicciones
+
+Requiere **Python 3.12** (`xgboost==3.4.1` no instala con 3.11). La guía completa está en **`docs/03_api_despliegue.md`**.
+
+```powershell
+$env:PYTHONPATH = "src"
+python tools/generar_predicciones.py   # crea churn_gold.churn_predicciones (requiere permiso de escritura)
+uvicorn api.app:app --reload           # API en http://127.0.0.1:8000/docs
+```
+
+| | |
+|---|---|
+| Tabla | `churn_gold.churn_predicciones`: probabilidad, `churn_predicho`, prioridad, motivo, campaña y contribuciones de los 500.000 clientes. Verificada: 43.375 marcados como churn y ROC-AUC de 0,7811 en `test` |
+| Endpoints | `GET /salud`, `GET /modelo`, `POST /predecir`, `POST /explicar`, `POST /contrafactuales`, `GET /clientes/{customer_id}` |
+| Despliegue | Docker en EC2 (`t3.small`) con un rol IAM de solo lectura sobre el modelo. Probado desde fuera de AWS: mismas probabilidades que el modelo local (sección 6 de la guía) |
 
 ## Referencias
 
