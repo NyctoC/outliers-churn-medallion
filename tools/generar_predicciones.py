@@ -12,11 +12,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import awswrangler as wr
-
 from churn import data, features, modelos
 
 BASE, TABLA = "churn_gold", "churn_predicciones"
+
+# Tipos de Athena para cada columna de la tabla (para el CREATE TABLE)
+TIPOS_ATHENA = {
+    "customer_id": "bigint", "conjunto": "string", "probabilidad": "double", "churn_predicho": "int",
+    "prioridad": "int", "motivo_principal": "string", "campana_sugerida": "string",
+    "contribucion_pedidos": "double", "contribucion_gasto": "double", "contribucion_valor_promedio": "double",
+    "contribucion_devoluciones": "double", "contribucion_pedidos_devoluciones": "double",
+    "modelo": "string", "umbral": "double", "fecha_prediccion": "date",
+}
 
 # Athena no admite espacios ni "&" en los nombres de columna, así que se renombran las contribuciones del EBM
 CONTRIBUCIONES = {
@@ -56,15 +63,52 @@ def verificar(tabla):
 
 
 def escribir_oro(tabla):
+    """Sube la tabla a S3 en un único Parquet y crea la tabla externa en Athena.
+
+    Se evita wr.athena.to_iceberg porque entra en conflicto con truststore (RecursionError al crear el
+    cliente SSL). En cambio se usa el cliente S3 de boto3 (igual que descargar_modelado) y Athena para el DDL
+    (igual que leer_athena), que sí conviven con truststore.
+    """
     bucket = data._bucket()
-    wr.athena.to_iceberg(
-        df=tabla, database=BASE, table=TABLA,
-        table_location=f"s3://{bucket}/gold/{TABLA}/",
-        temp_path=f"s3://{bucket}/athena-results/temp_iceberg/",
-        s3_output=f"s3://{bucket}/athena-results/",
-        mode="overwrite", keep_files=False, boto3_session=data._sesion(),
-    )
-    print(f"tabla {BASE}.{TABLA} escrita en s3://{bucket}/gold/{TABLA}/")
+    prefijo = f"gold/{TABLA}"
+    ubicacion = f"s3://{bucket}/{prefijo}/"
+    s3 = data._sesion().client("s3")
+
+    # Borra lo que haya en la carpeta para que la tabla no mezcle una corrida anterior
+    pagina = s3.list_objects_v2(Bucket=bucket, Prefix=f"{prefijo}/")
+    objetos = [{"Key": o["Key"]} for o in pagina.get("Contents", [])]
+    if objetos:
+        s3.delete_objects(Bucket=bucket, Delete={"Objects": objetos})
+
+    # Sube el Parquet (el DataFrame ya está en memoria, se escribe a un archivo local y se sube)
+    ruta_local = data.DIR_DATOS / f"{TABLA}.parquet"
+    data.DIR_DATOS.mkdir(exist_ok=True)
+    tabla.to_parquet(ruta_local, index=False)
+    s3.upload_file(str(ruta_local), bucket, f"{prefijo}/{TABLA}.parquet")
+
+    # Crea la base (por si no existe) y la tabla externa, apuntando a la carpeta de Parquet
+    columnas = ",\n  ".join(f"{col} {TIPOS_ATHENA[col]}" for col in tabla.columns)
+    ejecutar_athena(f"CREATE DATABASE IF NOT EXISTS {BASE}")
+    ejecutar_athena(f"DROP TABLE IF EXISTS {BASE}.{TABLA}")
+    ejecutar_athena(
+        f"CREATE EXTERNAL TABLE {BASE}.{TABLA} (\n  {columnas}\n)\n"
+        f"STORED AS PARQUET\nLOCATION '{ubicacion}'\n"
+        f"TBLPROPERTIES ('parquet.compression' = 'SNAPPY')")
+    print(f"tabla {BASE}.{TABLA} creada sobre {ubicacion}")
+
+
+def ejecutar_athena(sql):
+    """Ejecuta una sentencia DDL en Athena (CREATE/DROP) y espera a que termine.
+
+    Usa awswrangler igual que data.leer_athena, que convive con truststore. read_sql_query no sirve para DDL
+    porque espera un resultado tabular.
+    """
+    import awswrangler as wr
+
+    id_consulta = wr.athena.start_query_execution(
+        sql=sql, database=BASE, s3_output=f"s3://{data._bucket()}/athena-results/",
+        boto3_session=data._sesion())
+    wr.athena.wait_query(query_execution_id=id_consulta, boto3_session=data._sesion())
 
 
 def guardar_copia_para_api(tabla):
