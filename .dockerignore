@@ -1,0 +1,16 @@
+# Nada de esto entra al contexto de "docker build": credenciales, datos, cachés y entornos
+.env
+.env.*
+!.env.example
+.aws/
+data/
+sql_rendered/
+notebooks/
+reports/
+.git/
+.venv/
+**/__pycache__/
+**/.ipynb_checkpoints/
+*.csv
+*.parquet
+*.joblib
