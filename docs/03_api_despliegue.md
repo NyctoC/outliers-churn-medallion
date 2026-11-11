@@ -8,7 +8,7 @@ Ambas usan las funciones de `src/churn/modelos.py`, así que dan los mismos resu
 | Pieza | Archivo | Estado |
 |---|---|---|
 | API (FastAPI) | `api/app.py` | Probada en local (sección 6) |
-| Imagen Docker | `api/Dockerfile`, `api/requirements.txt`, `.dockerignore` | Escrita, falta construirla en EC2 |
+| Imagen Docker | `api/Dockerfile`, `api/requirements.txt`, `.dockerignore`, `tools/empaquetar_api.py` | Escrita, falta construirla en EC2 |
 | Tabla de predicciones | `tools/generar_predicciones.py` → `churn_gold.churn_predicciones` | Creada y verificada en Athena |
 | Despliegue en EC2 | Sección 5 | Pendiente |
 
@@ -175,10 +175,12 @@ ejecutar, y la instancia los lee de S3 con un rol IAM. `.dockerignore` deja fuer
      "Statement": [
        {"Effect": "Allow", "Action": "s3:ListBucket",
         "Resource": "arn:aws:s3:::NOMBRE-DEL-BUCKET",
-        "Condition": {"StringLike": {"s3:prefix": ["modelado/modelo_final/*", "gold/churn_predicciones_api/*"]}}},
+        "Condition": {"StringLike": {"s3:prefix": ["modelado/modelo_final/*", "gold/churn_predicciones_api/*",
+                                                    "despliegue/*"]}}},
        {"Effect": "Allow", "Action": "s3:GetObject",
         "Resource": ["arn:aws:s3:::NOMBRE-DEL-BUCKET/modelado/modelo_final/*",
-                     "arn:aws:s3:::NOMBRE-DEL-BUCKET/gold/churn_predicciones_api/*"]}
+                     "arn:aws:s3:::NOMBRE-DEL-BUCKET/gold/churn_predicciones_api/*",
+                     "arn:aws:s3:::NOMBRE-DEL-BUCKET/despliegue/*"]}
      ]
    }
    ```
@@ -189,13 +191,15 @@ ejecutar, y la instancia los lee de S3 con un rol IAM. `.dockerignore` deja fuer
 3. **Instalación** (en la terminal de Instance Connect):
 
    ```bash
-   sudo dnf install -y docker git
+   sudo dnf install -y docker unzip
    sudo systemctl enable --now docker
    sudo usermod -aG docker ec2-user
    exit
    # vuelve a conectarte
-   git clone -b api-despliegue https://github.com/NyctoC/outliers-churn-medallion.git
-   cd outliers-churn-medallion
+   # El repo es privado, así que la instancia no lo clona: descarga el código empaquetado en S3
+   # (en tu equipo: python tools/empaquetar_api.py --subir)
+   mkdir churn-api && cd churn-api
+   aws s3 cp s3://NOMBRE-DEL-BUCKET/despliegue/churn-api.zip . && unzip churn-api.zip
    aws s3 cp s3://NOMBRE-DEL-BUCKET/modelado/modelo_final/ ./modelo/ --recursive
    aws s3 cp s3://NOMBRE-DEL-BUCKET/gold/churn_predicciones_api/churn_predicciones.parquet .
    docker build -f api/Dockerfile -t churn-api .
@@ -221,6 +225,9 @@ Con el cliente de pruebas de FastAPI y el modelo descargado de S3, 25 de 25 cheq
   `bajo_umbral` para uno de bajo riesgo y no deja `NaN` en el JSON.
 - `/clientes/{id}` responde 200 para un cliente existente y 404 para uno inexistente.
 - Las validaciones de la sección 4 dan 422 o advertencia según corresponde.
+
+También se comprobó que la API arranca y responde en un entorno limpio con **solo** `api/requirements.txt` (lo mismo
+que tendrá la imagen), sin `awswrangler`, `matplotlib` ni `xgboost`.
 
 No se ha probado: la construcción de la imagen Docker (no hay Docker en el equipo local) ni el despliegue en EC2.
 
