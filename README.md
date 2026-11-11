@@ -154,7 +154,8 @@ limpio = limpio.merge(data.cargar_particion(limpio), on=features.LLAVE)   # la m
 train = limpio[limpio["conjunto"] == "train"].drop(columns="conjunto")
 test = limpio[limpio["conjunto"] == "test"].drop(columns="conjunto")      # se evalúa una sola vez, al final
 
-variables_principal = features.VARIABLES_ESCENARIO_PRINCIPAL
+variables_principal = features.VARIABLES_ESCENARIO_PRINCIPAL   # las 7 del EDA
+variables_modelo = features.VARIABLES_MODELO_FINAL             # las 4 del modelo final, sin las de la etiqueta
 variables_comparacion = features.variables_escenario_comparacion(train)
 ```
 

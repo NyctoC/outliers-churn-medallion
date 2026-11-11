@@ -111,15 +111,17 @@ def cargar_particion(df, objetivo="churn", llave="customer_id"):
     return particion
 
 
-def descargar_modelado(refrescar=False):
+def descargar_modelado(refrescar=False, subcarpeta=""):
     """Descarga de S3 a `data/modelado` los resultados con los que se decidió el modelo y el modelo final.
 
-    Los archivos que ya existen no se tocan, salvo que `refrescar` sea True.
+    Los archivos que ya existen no se tocan, salvo que `refrescar` sea True. Con `subcarpeta` (por ejemplo
+    "modelo_final") solo se descarga esa carpeta.
     Devuelve cuántos archivos se descargaron y cuántos ya existían.
     """
     s3, bucket = _sesion().client("s3"), _bucket()
     descargados = existentes = 0
-    for pagina in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=f"{PREFIJO_MODELADO}/"):
+    prefijo = f"{PREFIJO_MODELADO}/{subcarpeta.strip('/') + '/' if subcarpeta else ''}"
+    for pagina in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefijo):
         for objeto in pagina.get("Contents", []):
             if objeto["Key"].endswith("/"):
                 continue

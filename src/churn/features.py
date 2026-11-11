@@ -139,12 +139,21 @@ COLUMNAS_FUGA = ["churn_risk_score", "customer_segment"]
 # lifetime_value se usa para priorizar clientes por valor
 COLUMNAS_REDUNDANTES = ["loyalty_points", "lifetime_value", "orders_status_returned_n"]
 
-# Variables del escenario principal del modelado (secciones 5.3 y 5.4). El escenario de comparación usa las demás
+# Variables del escenario principal fijadas en el EDA (secciones 5.3 y 5.4). El modelo final usa VARIABLES_MODELO_FINAL.
+# El escenario de comparación usa las demás
 # variables de customer_360 que no pertenecen a customer_summary, sin COLUMNAS_FUGA ni COLUMNAS_REDUNDANTES
 VARIABLES_ESCENARIO_PRINCIPAL = [
     "summary_total_orders", "total_spent", "average_order_value", "total_returns", "return_rate",
     "last_purchase_days", "purchase_frequency",
 ]
+
+# Variables del escenario principal con las que parece construida la etiqueta (sección 5.6 de 02_modelado). Con ellas
+# el ROC-AUC llega a 1, así que el modelado las retira por fuga (sección 5.7 de 02_modelado). El orden se conserva
+# porque la sección 5.6 prueba también sus primeros subconjuntos
+COLUMNAS_FUGA_ETIQUETA = ["last_purchase_days", "return_rate", "purchase_frequency"]
+
+# Variables del modelo final: el escenario principal sin COLUMNAS_FUGA_ETIQUETA. Son las que recibe la API
+VARIABLES_MODELO_FINAL = [v for v in VARIABLES_ESCENARIO_PRINCIPAL if v not in COLUMNAS_FUGA_ETIQUETA]
 
 # Columnas que la calidad de datos decidió no usar, cada una con su regla (sección 3.7 del notebook)
 COLUMNAS_DESCARTADAS = [
