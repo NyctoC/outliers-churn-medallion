@@ -46,7 +46,8 @@ outliers-churn-medallion/
 │   ├── comparacion_bronce_plata_oro.md   # plantilla de bytes escaneados y tiempos
 │   ├── eda_decisiones.md                 # bitácora de decisiones del EDA, con su evidencia
 │   ├── modelado_decisiones.md            # bitácora de decisiones del modelado y la explicabilidad
-│   └── 03_api_despliegue.md              # API, tabla churn_predicciones y despliegue en EC2
+│   ├── 03_api_despliegue.md              # API, tabla churn_predicciones y despliegue en EC2
+│   └── 04_tablero_streamlit.md           # guía del tablero: qué hace y cómo se lee cada vista
 ├── sql/
 │   ├── 00_setup/        # crea las 3 bases de datos
 │   ├── 01_bronze/       # tablas externas + verificación de conteos
@@ -64,7 +65,13 @@ outliers-churn-medallion/
 │   ├── app.py           # API REST (FastAPI) sobre src/churn/modelos.py
 │   ├── requirements.txt # dependencias de la API con las versiones del modelo
 │   └── Dockerfile       # imagen de la API; el modelo se monta al ejecutar
-├── .env.example         # plantilla de la conexión a AWS: cópiala como .env (ignorado por git)
+├── dashboard/
+│   ├── app.py           # tablero en Streamlit: navegación y estado de la API
+│   ├── requirements.txt # dependencias del tablero (no carga el modelo: lo consulta en la API)
+│   ├── componentes/     # consultas a Athena, cliente de la API, gráficos y textos
+│   └── paginas/         # valor.py, simulador.py y efectos.py (las 3 vistas)
+├── .streamlit/config.toml  # tema del tablero
+├── .env.example         # plantilla de la conexión a AWS y de API_URL: cópiala como .env (ignorado por git)
 ├── notebooks/
 │   ├── 01_eda_calidad.ipynb   # EDA y 6 dimensiones de calidad
 │   ├── 02_modelado.ipynb      # validación, desbalance, fuga, selección y evaluación del modelo
@@ -234,6 +241,43 @@ uvicorn api.app:app --reload           # API en http://127.0.0.1:8000/docs
 | Tabla | `churn_gold.churn_predicciones`: probabilidad, `churn_predicho`, prioridad, motivo, campaña y contribuciones de los 500.000 clientes. Verificada: 43.375 marcados como churn y ROC-AUC de 0,7811 en `test` |
 | Endpoints | `GET /salud`, `GET /modelo`, `POST /predecir`, `POST /explicar`, `POST /contrafactuales`, `GET /clientes/{customer_id}` |
 | Despliegue | Docker en EC2 (`t3.small`) con un rol IAM de solo lectura sobre el modelo. Probado desde fuera de AWS: mismas probabilidades que el modelo local (sección 6 de la guía) |
+
+## Tablero (Streamlit)
+
+Complementa la presentación: en lugar de repetir el modelo, permite **explorar dónde está el valor en riesgo y bajar
+hasta un cliente** para entender su riesgo y simular cambios con la API. La guía completa de cada vista, con ejemplos,
+está en **`docs/04_tablero_streamlit.md`**.
+
+```powershell
+.venv\Scripts\Activate.ps1
+streamlit run dashboard/app.py   # http://localhost:8501
+```
+
+Necesita en `.env` las llaves del usuario **de solo lectura**, `ATHENA_S3_OUTPUT` y `API_URL` (la Elastic IP de la
+API, ver `.env.example`). En Streamlit Cloud van en *Settings → Secrets*, con *Main file path* `dashboard/app.py`.
+
+| Vista | Qué permite | Fuente |
+|---|---|---|
+| **Valor en riesgo** | Pérdida esperada (probabilidad × CLV) con filtros, matriz riesgo × valor con drill-down, el dilema de priorizar por probabilidad o por valor, y la lista de clientes | Consultas SQL a Athena sobre la capa oro, con el SQL visible |
+| **Ficha y simulador** | Por qué un cliente está en riesgo (explicación aditiva del EBM), su pérdida esperada, la campaña sugerida, el contrafactual y un what-if en vivo | API: `/explicar`, `/contrafactuales`, `/clientes/{id}`, `/modelo` |
+| **Efecto de las variables** | Curvas de cada variable y mapa pedidos × devoluciones con la frontera del 50 % | API: `/predecir` (~1.340 predicciones por cliente base) |
+
+**Cómo leer el gráfico de log-odds (Ficha y simulador).** El EBM no suma probabilidades, suma **log-odds**:
+log(p ÷ (1 − p)). En esa escala los efectos se pueden sumar sin salirse de 0–1, y al final se convierte con
+p = 1 ÷ (1 + e^(−log-odds)). **0 log-odds = 50 %**, el umbral; positivo es más probable irse, negativo quedarse.
+El gráfico arranca en el **punto de partida**, el intercepto del modelo: **−1,56 log-odds ≈ 17 %**, lo que el modelo
+diría de un cliente típico antes de mirar sus datos. Sale del entrenamiento: el EBM centra cada variable para que su
+efecto promedio sea cero, y lo que queda es este valor fijo, igual para todos los clientes (por eso no coincide
+exactamente con la tasa de churn del 20,7 %, que serían −1,34 log-odds). Cada barra suma o resta según el valor del
+cliente en esa variable. Ejemplo, cliente 1340006: −1,56 + 2,06 (pedidos) + 0,84 (pedidos × devoluciones) + 0,78
+(gasto) + 0,18 (valor promedio) − 0,72 (devoluciones) = **+1,58 log-odds → 83 %**. Detalle en la sección de la vista 2
+de `docs/04_tablero_streamlit.md`.
+
+**Hallazgo propio del tablero:** los clientes con mayor riesgo son los de menor valor. El 10 % de mayor riesgo solo
+carga el 9 % de la pérdida esperada. Al contactar al 10 % de los clientes de `test`, priorizar por probabilidad
+encuentra el 35 % de los que se van pero solo el 9 % de su valor; priorizar por pérdida esperada encuentra el 11 % y
+el 26 % del valor (coincide con la decisión 41 de `docs/eda_decisiones.md`). La elección depende del objetivo del
+negocio.
 
 ## Referencias
 

@@ -1,0 +1,12 @@
+# Dependencias del tablero (Streamlit Cloud usa este archivo por estar junto a dashboard/app.py).
+# Más liviano que el requirements.txt de la raíz: el tablero no carga el modelo, lo consulta en la API.
+streamlit==1.67.0
+plotly==7.1.0
+pandas==3.1.0
+numpy==2.4.6
+pyarrow==26.0.0
+awswrangler==3.18.0
+boto3==1.43.123
+requests==2.34.2
+python-dotenv==1.2.4
+truststore==0.10.5
