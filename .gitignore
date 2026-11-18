@@ -22,3 +22,6 @@ __pycache__/
 .ipynb_checkpoints/
 .vscode/
 .DS_Store
+
+# Tablero: secretos locales de Streamlit (si se usan en vez de .env)
+.streamlit/secrets.toml
